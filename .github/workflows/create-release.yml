@@ -1,0 +1,58 @@
+name: Create Release
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      RELEASE_NOTES_PATH: /tmp/release_notes.md
+      RELEASE_NOTES_EXIST: 0
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v5
+
+    - name: Generate Release Notes
+      run: |
+        IFS=. read -a VERSIONS <<< "${GITHUB_REF_NAME#v}"
+
+        FILE_PATH="./CHANGELOG/CHANGELOG-${VERSIONS[0]}.${VERSIONS[1]}.md"
+        if [[ ! -f $FILE_PATH ]]; then
+            exit 0
+        fi
+
+        if ! grep -q "^## \[${VERSIONS[0]}\.${VERSIONS[1]}\.${VERSIONS[2]}\]" "${FILE_PATH}"; then
+            exit 0
+        fi
+
+        sed -n -Ee "/^## \[${VERSIONS[0]}\.${VERSIONS[1]}\.${VERSIONS[2]}\]/,/^## / {
+            :a
+            p
+            n
+            /^## /q
+            ba
+        }" "${FILE_PATH}" > "${RELEASE_NOTES_PATH}"
+
+        echo "RELEASE_NOTES_EXIST=1" >> "${GITHUB_ENV}"
+
+    - name: Create Release
+      if: env.RELEASE_NOTES_EXIST == 1
+      run: |
+        gh config set prompt disabled
+        gh release create "${GITHUB_REF_NAME}" --notes-file "${RELEASE_NOTES_PATH}" --title "${GITHUB_REF_NAME}"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
